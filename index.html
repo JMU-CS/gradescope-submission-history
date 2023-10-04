@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<div id="container"></div>
+<script type="module">
+
+  import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
+
+  // Declare the chart dimensions and margins.
+  const width = 640*2;
+  const height = 400*2;
+  const marginTop = 20;
+  const marginRight = 20;
+  const marginBottom = 30;
+  const marginLeft = 40;
+
+  const data = await d3.json("hw4-submission-history-anon.json");
+  console.log(data)
+  const flattened = Object.keys(data).flatMap((p)=>Object.keys(data[p]).map(subKey=>({student:parseInt(p.substring('student'.length), 10), dateTime: new Date(data[p][subKey].dateTime), score: parseFloat(data[p][subKey].score), submission:subKey})))
+  console.log(flattened)
+
+  // Declare the x (horizontal position) scale.
+  const x = d3.scaleTime()
+    .domain([new Date("2023-09-27T00:00:00-04:00"), new Date("2023-10-02T23:59:59-04:00")])
+    .range([marginLeft, width - marginRight]);
+
+  // Declare the y (vertical position) scale.
+  const y = d3.scaleLinear()
+    .domain([0, 100])
+    .range([height - marginBottom, marginTop]);
+
+  // Create the SVG container.
+  const svg = d3.create("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+  // Add the x-axis.
+  svg.append("g")
+    .attr("transform", `translate(0,${height - marginBottom})`)
+    .call(d3.axisBottom(x));
+
+  // Add the y-axis.
+  svg.append("g")
+    .attr("transform", `translate(${marginLeft},0)`)
+    .call(d3.axisLeft(y));
+
+  // Append the SVG element.
+  container.append(svg.node());
+
+  const jitter = p => {
+    return p[1]-p[2]
+  }
+
+   // Compute the points in pixel space as [x, y, z], where z is the name of the series.
+    const points = flattened.map((d) => [x(d.dateTime), y(d.score), d.student, d]);
+    console.log('points', points)
+
+     // Group the points by series.
+      const groups = d3.rollup(points, v => Object.assign(v, { z: v[0][2] }), d => d[2]);
+      console.log('groups', groups)
+
+      const color = d3.scaleOrdinal(d3.schemeCategory10);
+      // Draw the lines.
+      const line = d3.line();
+      const path = svg.append("g")
+        .attr("fill", "none")
+        // .attr("stroke", "steelblue")
+        .attr("stroke-width", 1.5)
+        .attr("stroke-linejoin", "round")
+        .attr("stroke-linecap", "round")
+        .selectAll("path")
+        .data(groups.values())
+        .join("path")
+        .style("mix-blend-mode", "multiply")
+        .attr("d", d => { console.log('d', d, line); return line(d.map(p=>[p[0], jitter(p), p[2]])); })
+        // .attr("d", d=>line)
+        .attr("stroke", d=>color(d[0][2]))
+
+      // Add an invisible layer for the interactive tip.
+      const dot = svg.append("g")
+        .attr("display", "none");
+
+      dot.append("circle")
+        .attr("r", 2.5);
+
+      dot.append("text")
+        .attr("text-anchor", "middle")
+        .attr("y", -8);
+
+      svg
+        .on("pointerenter", pointerentered)
+        .on("pointermove", pointermoved)
+        .on("pointerleave", pointerleft)
+        .on("touchstart", event => event.preventDefault());
+
+svg.node();
+
+  // When the pointer moves, find the closest point, update the interactive tip, and highlight
+  // the corresponding line. Note: we don't actually use Voronoi here, since an exhaustive search
+  // is fast enough.
+  function pointermoved(event) {
+    const [xm, ym] = d3.pointer(event);
+    const i = d3.leastIndex(points, ([x, y]) => Math.hypot(x - xm, y - ym));
+    const [x, y, k, p] = points[i];
+    path.style("stroke", ({ z }) => z === k ? null : "#ddd").filter(({ z }) => z === k).raise();
+    dot.attr("transform", `translate(${x},${y})`);
+    dot.select("text").text(`Student:${k} DT:${p.dateTime} Sub#:${p.submission} Score: ${p.score}`);
+    svg.property("value", flattened[i]).dispatch("input", { bubbles: true });
+  }
+
+  function pointerentered() {
+    path.style("mix-blend-mode", null).style("stroke", "#ddd");
+    dot.attr("display", null);
+  }
+
+  function pointerleft() {
+    path.style("mix-blend-mode", "multiply").style("stroke", null);
+    dot.attr("display", "none");
+    svg.node().value = null;
+    svg.dispatch("input", { bubbles: true });
+  }
+
+</script>
